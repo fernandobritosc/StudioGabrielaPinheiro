@@ -10,12 +10,12 @@ interface Cliente {
     telefone: string;
     mapeamento_olhar: string;
     anamnese?: {
-        alergias: string;
-        problemas_oculares: string;
-        gestante: boolean;
-        lentes_contato: boolean;
-        dorme_lado: string;
-        observacoes_saude: string;
+        alergias?: string;
+        problemas_oculares?: string;
+        gestante?: boolean;
+        lentes_contato?: boolean;
+        dorme_lado?: string;
+        observacoes_saude?: string;
     };
 }
 
@@ -352,7 +352,11 @@ export default function ClientsPage() {
                                             className="w-5 h-5 rounded-lg border-border text-primary focus:ring-primary accent-primary"
                                             checked={selectedClientForAnamnese.anamnese?.gestante || false}
                                             onChange={async (e) => {
-                                                const updated = { ...selectedClientForAnamnese, anamnese: { ...selectedClientForAnamnese.anamnese, gestante: e.target.checked } };
+                                                const currentAnamnese = selectedClientForAnamnese.anamnese || {};
+                                                const updated = {
+                                                    ...selectedClientForAnamnese,
+                                                    anamnese: { ...currentAnamnese, gestante: e.target.checked }
+                                                };
                                                 //@ts-ignore
                                                 await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
                                                 setSelectedClientForAnamnese(updated);
@@ -369,7 +373,11 @@ export default function ClientsPage() {
                                             className="w-5 h-5 rounded-lg border-border text-primary focus:ring-primary accent-primary"
                                             checked={selectedClientForAnamnese.anamnese?.lentes_contato || false}
                                             onChange={async (e) => {
-                                                const updated = { ...selectedClientForAnamnese, anamnese: { ...selectedClientForAnamnese.anamnese, lentes_contato: e.target.checked } };
+                                                const currentAnamnese = selectedClientForAnamnese.anamnese || {};
+                                                const updated = {
+                                                    ...selectedClientForAnamnese,
+                                                    anamnese: { ...currentAnamnese, lentes_contato: e.target.checked }
+                                                };
                                                 //@ts-ignore
                                                 await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
                                                 setSelectedClientForAnamnese(updated);
@@ -387,7 +395,11 @@ export default function ClientsPage() {
                                     className="w-full p-4 rounded-2xl border border-border bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-primary/10"
                                     value={selectedClientForAnamnese.anamnese?.dorme_lado || ""}
                                     onChange={async (e) => {
-                                        const updated = { ...selectedClientForAnamnese, anamnese: { ...selectedClientForAnamnese.anamnese, dorme_lado: e.target.value } };
+                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
+                                        const updated = {
+                                            ...selectedClientForAnamnese,
+                                            anamnese: { ...currentAnamnese, dorme_lado: e.target.value }
+                                        };
                                         //@ts-ignore
                                         await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
                                         setSelectedClientForAnamnese(updated);
@@ -411,7 +423,11 @@ export default function ClientsPage() {
                                     placeholder="Descreva aqui qualquer alergia..."
                                     value={selectedClientForAnamnese.anamnese?.alergias || ""}
                                     onChange={async (e) => {
-                                        const updated = { ...selectedClientForAnamnese, anamnese: { ...selectedClientForAnamnese.anamnese, alergias: e.target.value } };
+                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
+                                        const updated = {
+                                            ...selectedClientForAnamnese,
+                                            anamnese: { ...currentAnamnese, alergias: e.target.value }
+                                        };
                                         //@ts-ignore
                                         await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
                                         setSelectedClientForAnamnese(updated);
@@ -426,7 +442,11 @@ export default function ClientsPage() {
                                     placeholder="Problemas oculares, irritações, etc..."
                                     value={selectedClientForAnamnese.anamnese?.observacoes_saude || ""}
                                     onChange={async (e) => {
-                                        const updated = { ...selectedClientForAnamnese, anamnese: { ...selectedClientForAnamnese.anamnese, observacoes_saude: e.target.value } };
+                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
+                                        const updated = {
+                                            ...selectedClientForAnamnese,
+                                            anamnese: { ...currentAnamnese, observacoes_saude: e.target.value }
+                                        };
                                         //@ts-ignore
                                         await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
                                         setSelectedClientForAnamnese(updated);
