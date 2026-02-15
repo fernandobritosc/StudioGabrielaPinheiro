@@ -40,12 +40,21 @@ export default function LoginPage() {
 
             <div className="w-full max-w-md space-y-8 relative z-10">
                 <div className="text-center space-y-4">
-                    <div className="inline-flex p-4 bg-white rounded-3xl shadow-xl shadow-primary/10 border border-primary/10 animate-bounce-slow">
-                        <Scissors className="w-10 h-10 text-primary" />
+                    <div className="inline-flex p-4 bg-white rounded-3xl shadow-xl shadow-primary/10 border border-primary/10">
+                        <svg viewBox="0 0 24 24" className="w-12 h-12 text-primary fill-none stroke-current stroke-[1.5]" strokeLinecap="round" strokeLinejoin="round">
+                            {/* Cílios/Olho estilizado */}
+                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                            <circle cx="12" cy="12" r="3" />
+                            <path d="M5 19l2-2" />
+                            <path d="M19 19l-2-2" />
+                            <path d="M12 21v-2" />
+                            {/* Sobrancelha */}
+                            <path d="M7 5c2-1 5-1 10 0" className="opacity-60" />
+                        </svg>
                     </div>
                     <div className="space-y-1">
-                        <h1 className="text-4xl font-black title-gold tracking-tight">Gabriela Pinheiro</h1>
-                        <p className="text-muted-foreground font-medium">Gestão de Lash Design • Login Seguro</p>
+                        <h1 className="text-4xl font-black title-gold tracking-tight">Studio Gabriela Pinheiro</h1>
+                        <p className="text-muted-foreground font-medium uppercase text-[10px] tracking-widest bg-primary/5 py-1 px-4 rounded-full w-fit mx-auto">Luxury Lash & Beauty</p>
                     </div>
                 </div>
 

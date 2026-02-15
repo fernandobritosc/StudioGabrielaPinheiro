@@ -158,7 +158,7 @@ export default function FinancialPage() {
 
                                             {/* Mostrar o saldo final se o serviço estiver concluído */}
                                             {isConcluido && (
-                                                <div className="p-8 flex items-center justify-between hover:bg-muted/30 transition-all group">
+                                                <div className="p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:bg-muted/30 transition-all group">
                                                     <div className="flex items-center gap-6">
                                                         <div className={`p-4 rounded-2xl group-hover:scale-110 transition-transform ${t.pago ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
                                                             <ArrowUpRight className="w-6 h-6" />

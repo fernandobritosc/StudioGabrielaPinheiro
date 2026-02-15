@@ -607,9 +607,9 @@ export default function CalendarPage() {
                     </div>
 
                     {/* Timeline Vertical */}
-                    <div className="relative pl-12 space-y-4 pb-10">
+                    <div className="relative pl-6 md:pl-12 space-y-4 pb-10">
                         {/* Linha Vertical Base */}
-                        <div className="absolute left-[23px] top-6 bottom-6 w-1 bg-gradient-to-b from-primary/5 via-primary/20 to-primary/5 rounded-full" />
+                        <div className="absolute left-[11px] md:left-[23px] top-6 bottom-6 w-1 bg-gradient-to-b from-primary/5 via-primary/20 to-primary/5 rounded-full" />
 
                         {loading ? (
                             <div className="flex flex-col items-center justify-center p-40 gap-4"><Loader2 className="animate-spin text-primary w-12 h-12" /><p className="text-muted-foreground font-black uppercase tracking-widest text-xs">Sincronizando...</p></div>
@@ -633,7 +633,7 @@ export default function CalendarPage() {
                                     <div className="absolute -left-[9.5px] top-2.5 w-5 h-5 bg-white border-4 border-primary rounded-full shadow-md z-10" />
 
                                     {item.type === 'busy' ? (
-                                        <div className="ml-6 bg-white p-7 rounded-[2.5rem] border border-border shadow-sm flex items-center justify-between hover:border-primary/40 transition-all duration-300">
+                                        <div className="ml-4 md:ml-6 bg-white p-4 md:p-7 rounded-[2rem] md:rounded-[2.5rem] border border-border shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between hover:border-primary/40 transition-all duration-300 gap-4">
                                             <div className="flex items-center gap-8">
                                                 <div className="h-12 w-px bg-primary/20 rounded-full" />
                                                 <div>
