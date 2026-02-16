@@ -44,6 +44,9 @@ export default function ConfigPage() {
         if (!error) {
             setNovaExcecao({ data: "", motivo: "" });
             fetchConfig();
+        } else {
+            console.error("Erro ao salvar feriado:", error);
+            alert("Erro ao salvar feriado: " + error.message);
         }
     }
 
@@ -182,7 +185,7 @@ export default function ConfigPage() {
                                 <div key={exc.id} className="flex items-center justify-between p-4 bg-orange-50 border border-orange-100 rounded-2xl group transition-all">
                                     <div>
                                         <p className="font-black text-orange-950 uppercase text-xs tracking-widest">
-                                            {new Date(exc.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                            {exc.data.split('-').reverse().join('/')}
                                         </p>
                                         <p className="font-bold text-orange-800">{exc.motivo || "Sem motivo"}</p>
                                     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Loader2, X, Clock as ClockIcon, Trash2, Edit3, AlertCircle, CheckCircle, Sparkles, DollarSign } from "lucide-react";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Loader2, X, Clock as ClockIcon, Trash2, Edit3, AlertCircle, CheckCircle, Sparkles, DollarSign, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface Agendamento {
@@ -10,9 +10,11 @@ interface Agendamento {
     status: string;
     cliente_id: string;
     servico_id: string;
-    clientes: { nome: string };
+    ciclo_cilios?: string; // Novo campo
+    clientes: { nome: string, telefone: string };
     servicos: { nome: string, duracao_minutos: number, preco: number };
     valor_final?: number;
+    sinal_valor?: number;
 }
 
 export default function CalendarPage() {
@@ -26,7 +28,17 @@ export default function CalendarPage() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [viewMonth, setViewMonth] = useState(new Date());
-    const [newApp, setNewApp] = useState({ cliente_id: "", servico_id: "", data: "", hora: "" });
+
+    // State do formulário atualizado
+    const [newApp, setNewApp] = useState({
+        cliente_id: "",
+        servico_id: "",
+        data: "",
+        hora: "",
+        ciclo_cilios: "",
+        valor_final: 0 // Novo: valor manual
+    });
+
     const [clientAlert, setClientAlert] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -77,23 +89,100 @@ export default function CalendarPage() {
         setLoading(false);
     }
 
+    // Estado para mensagem de sugestão do ciclo
+    const [cycleSuggestion, setCycleSuggestion] = useState<string | null>(null);
+
+    // Verificar histórico de Faltas
     async function checkClientHistory(clientId: string) {
         if (!clientId) {
             setClientAlert(null);
             return;
         }
-        const { data } = await supabase
+        const { data: faltas } = await supabase
             .from("agendamentos")
             .select("id")
             .eq("cliente_id", clientId)
             .eq("status", "faltou");
 
-        if (data && data.length > 0) {
+        if (faltas && faltas.length > 0) {
             setClientAlert("⚠️ ESTA CLIENTE POSSUI HISTÓRICO DE FALTAS! Solicitar pagamento antecipado de 50% para confirmar.");
         } else {
             setClientAlert(null);
         }
     }
+
+    // Monitorar mudança de Cliente ou Serviço para sugerir o Ciclo e Preço
+    useEffect(() => {
+        // Se mudou o serviço, atualiza o preço sugerido no agendamento
+        if (newApp.servico_id) {
+            const service = services.find(s => s.id === newApp.servico_id);
+            if (service && !editingId) { // Só muda automático se for agendamento novo
+                setNewApp(prev => ({ ...prev, valor_final: service.preco }));
+            }
+        }
+
+        if (!newApp.cliente_id || !newApp.servico_id) {
+            setCycleSuggestion(null);
+            return;
+        }
+
+        const runCycleCheck = async () => {
+            const service = services.find(s => s.id === newApp.servico_id);
+            if (!service) return;
+
+            const nome = service.nome.toLowerCase();
+            const isCilios = nome.includes("cílios") || nome.includes("cilios") || nome.includes("volume") || nome.includes("fio") || nome.includes("extensão") || nome.includes("manutenção");
+
+            if (!isCilios) {
+                setCycleSuggestion(null);
+                setNewApp(prev => ({ ...prev, ciclo_cilios: "" }));
+                return;
+            }
+
+            // Buscar último agendamento de Cílios
+            const { data: lastApp } = await supabase
+                .from("agendamentos")
+                .select("ciclo_cilios, horario")
+                .eq("cliente_id", newApp.cliente_id)
+                .neq("status", "desmarcou")
+                .not("ciclo_cilios", "is", null)
+                .order("horario", { ascending: false })
+                .limit(1)
+                .single();
+
+            if (lastApp && lastApp.ciclo_cilios) {
+                const last = lastApp.ciclo_cilios;
+                let next = "";
+                let reason = "";
+
+                if (last === "Aplicação" || last === "Nova Aplicação") {
+                    next = "1ª Manutenção";
+                    reason = "Sugestão baseada no último serviço: 1ª Manutenção.";
+                } else if (last === "1ª Manutenção") {
+                    next = "2ª Manutenção";
+                    reason = "Dando continuidade ao ciclo: 2ª Manutenção.";
+                } else if (last === "2ª Manutenção") {
+                    next = "3ª Manutenção";
+                    reason = "Reta final: 3ª Manutenção (Última do ciclo).";
+                } else if (last === "3ª Manutenção") {
+                    next = "Nova Aplicação";
+                    reason = "⚠️ CICLO ENCERRADO! Necessário Nova Aplicação para garantir adesão.";
+                } else {
+                    next = "Aplicação";
+                    reason = "Iniciando novo ciclo.";
+                }
+
+                setNewApp(prev => ({ ...prev, ciclo_cilios: next }));
+                setCycleSuggestion(reason);
+            } else {
+                setNewApp(prev => ({ ...prev, ciclo_cilios: "Aplicação" }));
+                setCycleSuggestion("Sem ciclo ativo. Sugerido: Iniciar Aplicação.");
+            }
+        };
+
+        runCycleCheck();
+
+    }, [newApp.cliente_id, newApp.servico_id, services, editingId]);
 
     function handleConfirmHorario(app: any) {
         const telRaw = app.clientes?.telefone || "";
@@ -275,16 +364,18 @@ export default function CalendarPage() {
             return;
         }
 
+        const payload: any = {
+            cliente_id: newApp.cliente_id,
+            servico_id: newApp.servico_id,
+            horario: isoString,
+            ciclo_cilios: newApp.ciclo_cilios,
+            valor_final: newApp.valor_final
+        };
+
         const { error } = editingId
-            ? await supabase.from("agendamentos").update({
-                cliente_id: newApp.cliente_id,
-                servico_id: newApp.servico_id,
-                horario: isoString
-            }).eq("id", editingId)
+            ? await supabase.from("agendamentos").update(payload).eq("id", editingId)
             : await supabase.from("agendamentos").insert([{
-                cliente_id: newApp.cliente_id,
-                servico_id: newApp.servico_id,
-                horario: isoString,
+                ...payload,
                 status: 'pendente',
                 sinal_valor: receiveSignal ? signalForm.valor : 0,
                 sinal_metodo: receiveSignal ? signalForm.metodo : null,
@@ -312,7 +403,9 @@ export default function CalendarPage() {
             cliente_id: app.cliente_id,
             servico_id: app.servico_id,
             data: dataStr,
-            hora: horaStr
+            hora: horaStr,
+            ciclo_cilios: app.ciclo_cilios || "",
+            valor_final: app.valor_final || app.servicos?.preco || 0
         });
         setReceiveSignal(false); // Reseta o sinal para não cobrar de novo no reagendamento por padrão
         setClientAlert(null);
@@ -334,6 +427,18 @@ export default function CalendarPage() {
     for (let i = 0; i < startDay; i++) calendarDays.push(null);
     for (let i = 1; i <= totalDays; i++) calendarDays.push(new Date(viewMonth.getFullYear(), viewMonth.getMonth(), i));
 
+    // Helper para cores do ciclo
+    const getCicloBadge = (ciclo: string) => {
+        switch (ciclo) {
+            case "Aplicação": return "bg-purple-100 text-purple-700 border-purple-200";
+            case "1ª Manutenção": return "bg-blue-50 text-blue-700 border-blue-100";
+            case "2ª Manutenção": return "bg-blue-100 text-blue-800 border-blue-200";
+            case "3ª Manutenção": return "bg-orange-100 text-orange-700 border-orange-200";
+            case "Nova Aplicação": return "bg-green-100 text-green-700 border-green-200";
+            default: return "bg-muted/50 text-muted-foreground border-border";
+        }
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             <header className="flex justify-between items-center bg-white/50 backdrop-blur-md p-6 rounded-[2.5rem] border border-border/50 sticky top-0 z-40">
@@ -346,7 +451,7 @@ export default function CalendarPage() {
                         <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Controle Profissional • Gabriela Pinheiro</p>
                     </div>
                 </div>
-                <button onClick={() => { setEditingId(null); setClientAlert(null); setReceiveSignal(false); setShowModal(true); }} className="bg-primary text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 flex items-center gap-2 group">
+                <button onClick={() => { setEditingId(null); setClientAlert(null); setReceiveSignal(false); setNewApp(prev => ({ ...prev, ciclo_cilios: "" })); setShowModal(true); }} className="bg-primary text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 flex items-center gap-2 group">
                     <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" /> Novo Horário
                 </button>
             </header>
@@ -421,13 +526,59 @@ export default function CalendarPage() {
                                 </div>
                             )}
 
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Serviço</label>
-                                <select required className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold" value={newApp.servico_id} onChange={e => setNewApp({ ...newApp, servico_id: e.target.value })}>
-                                    <option value="">Selecionar Serviço...</option>
-                                    {services.map(s => <option key={s.id} value={s.id}>{s.nome} ({s.duracao_minutos}min)</option>)}
-                                </select>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Serviço</label>
+                                    <select required className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold" value={newApp.servico_id} onChange={e => setNewApp({ ...newApp, servico_id: e.target.value })}>
+                                        <option value="">Selecionar...</option>
+                                        {services.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-1">
+                                        <DollarSign className="w-3 h-3" /> Valor do Atendimento
+                                    </label>
+                                    <input
+                                        type="number"
+                                        className="w-full p-4 rounded-2xl border border-primary/20 outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-primary/5 font-black text-primary"
+                                        value={newApp.valor_final}
+                                        onChange={e => setNewApp({ ...newApp, valor_final: Number(e.target.value) })}
+                                    />
+                                </div>
                             </div>
+
+                            {/* Novo Campo de Ciclo (Apenas para Cílios) */}
+                            {newApp.servico_id && services.find(s => s.id === newApp.servico_id)?.nome.toLowerCase().match(/cílios|cilios|volume|fio|extensão|manutenção/) && (
+                                <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-indigo-600 ml-1 flex items-center gap-1">
+                                            <RefreshCw className="w-3 h-3" /> Controle de Ciclo (Cílios)
+                                        </label>
+                                        <select
+                                            className="w-full p-4 rounded-2xl border border-indigo-100 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 bg-indigo-50/30 font-bold text-indigo-900"
+                                            value={newApp.ciclo_cilios}
+                                            onChange={e => setNewApp({ ...newApp, ciclo_cilios: e.target.value })}
+                                        >
+                                            <option value="">Não se aplica</option>
+                                            <option value="Aplicação">✨ Aplicação Nova</option>
+                                            <option value="1ª Manutenção">1ª Manutenção</option>
+                                            <option value="2ª Manutenção">2ª Manutenção</option>
+                                            <option value="3ª Manutenção">⚠️ 3ª Manutenção (Última)</option>
+                                            <option value="Nova Aplicação">🔄 Nova Aplicação (Reset)</option>
+                                        </select>
+                                    </div>
+                                    {cycleSuggestion && (
+                                        <div className={`p-4 rounded-2xl border text-xs font-medium leading-relaxed flex gap-3 ${cycleSuggestion.includes("ENCERRADO")
+                                                ? "bg-red-50 border-red-100 text-red-700"
+                                                : "bg-indigo-50 border-indigo-100 text-indigo-700"
+                                            }`}>
+                                            <Sparkles className={`w-5 h-5 shrink-0 ${cycleSuggestion.includes("ENCERRADO") ? "text-red-500" : "text-indigo-500"}`} />
+                                            <span>{cycleSuggestion}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Data</label>
@@ -639,6 +790,15 @@ export default function CalendarPage() {
                                                 <div>
                                                     <div className="flex items-center gap-4 mb-2">
                                                         <p className="font-black text-2xl text-foreground tracking-tight">{item.data.clientes?.nome}</p>
+
+                                                        {/* Badge de Ciclo (Novo) */}
+                                                        {item.data.ciclo_cilios && (
+                                                            <div className={`px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0 animate-in zoom-in spin-in-1 duration-300 ${getCicloBadge(item.data.ciclo_cilios)}`}>
+                                                                <RefreshCw className="w-3 h-3" />
+                                                                {item.data.ciclo_cilios}
+                                                            </div>
+                                                        )}
+
                                                         <select
                                                             value={item.data.status}
                                                             onChange={(e) => updateStatus(item.data, e.target.value)}
@@ -702,7 +862,7 @@ export default function CalendarPage() {
                                         <button
                                             onClick={() => {
                                                 setEditingId(null);
-                                                setNewApp({ ...newApp, hora: item.start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) });
+                                                setNewApp({ ...newApp, hora: item.start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), ciclo_cilios: "" });
                                                 setClientAlert(null);
                                                 setShowModal(true);
                                             }}

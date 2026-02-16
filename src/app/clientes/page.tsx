@@ -1,465 +1,463 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, UserPlus, Phone, Loader2, X, Edit3, Trash2, ClipboardList, AlertTriangle, Send, CheckCircle } from "lucide-react";
+import { Search, UserPlus, Phone, Loader2, X, Edit3, Trash2, ClipboardList, AlertTriangle, Send, CheckCircle, ChevronRight, AlertCircle, Eye, User, FileText, Activity } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+// --- Interfaces ---
+
+interface AnamneseCompleta {
+    // 1. Pessoal
+    data_nascimento: string;
+    profissao: string;
+    instagram: string;
+    endereco: string;
+
+    // 2. Histórico Saúde
+    saude_alergias: boolean;
+    saude_dermatite: boolean;
+    saude_ocular: boolean;
+    saude_sensibilidade: boolean;
+    saude_herpes: boolean;
+    saude_autoimune: boolean;
+    saude_diabetes: boolean;
+    saude_hipertensao: boolean;
+    saude_hormonal: boolean;
+    saude_gestante: boolean;
+    saude_medicamentos: string;
+    saude_outros: string;
+
+    // 3. Histórico Estético
+    estetico_extensao: boolean;
+    estetico_lash_lifting: boolean;
+    estetico_brow_lamination: boolean;
+    estetico_design: boolean;
+    estetico_dermaplaning: boolean;
+    estetico_epilacao: boolean;
+    estetico_hidragloss: boolean;
+    estetico_reconstrucao: boolean;
+    estetico_irritacao_anterior: string;
+
+    // 4. Avaliação Técnica
+    tec_tipo_pele: string;
+    tec_sensibilidade: string;
+    tec_oleosidade: string;
+    tec_espessura: string;
+    tec_direcao: string;
+    tec_falhas: string;
+    tec_lesoes: string;
+    tec_observacoes: string;
+
+    // 5. Contraindicações (Bandeiras Vermelhas)
+    contra_olhos_irritados: boolean;
+    contra_conjuntivite: boolean;
+    contra_feridas: boolean;
+    contra_queimadura: boolean;
+    contra_acne: boolean;
+    contra_infeccao: boolean;
+    contra_quimica_recente: boolean;
+
+    // Termos
+    termo_aceito: boolean;
+    uso_imagem: boolean;
+    data_assinatura: string;
+
+    // Legado (campos antigos para migração suave)
+    alergias?: string;
+    observacoes_saude?: string;
+}
 
 interface Cliente {
     id: string;
     nome: string;
     telefone: string;
     mapeamento_olhar: string;
-    anamnese?: {
-        alergias?: string;
-        problemas_oculares?: string;
-        gestante?: boolean;
-        lentes_contato?: boolean;
-        dorme_lado?: string;
-        observacoes_saude?: string;
-    };
+    anamnese: AnamneseCompleta;
 }
+
+const defaultAnamnese: AnamneseCompleta = {
+    data_nascimento: "", profissao: "", instagram: "", endereco: "",
+    saude_alergias: false, saude_dermatite: false, saude_ocular: false, saude_sensibilidade: false,
+    saude_herpes: false, saude_autoimune: false, saude_diabetes: false, saude_hipertensao: false,
+    saude_hormonal: false, saude_gestante: false, saude_medicamentos: "", saude_outros: "",
+    estetico_extensao: false, estetico_lash_lifting: false, estetico_brow_lamination: false,
+    estetico_design: false, estetico_dermaplaning: false, estetico_epilacao: false,
+    estetico_hidragloss: false, estetico_reconstrucao: false, estetico_irritacao_anterior: "",
+    tec_tipo_pele: "", tec_sensibilidade: "", tec_oleosidade: "", tec_espessura: "",
+    tec_direcao: "", tec_falhas: "", tec_lesoes: "", tec_observacoes: "",
+    contra_olhos_irritados: false, contra_conjuntivite: false, contra_feridas: false,
+    contra_queimadura: false, contra_acne: false, contra_infeccao: false, contra_quimica_recente: false,
+    termo_aceito: false, uso_imagem: false, data_assinatura: ""
+};
 
 export default function ClientsPage() {
     const [clients, setClients] = useState<Cliente[]>([]);
     const [loading, setLoading] = useState(true);
-    const [editingId, setEditingId] = useState<string | null>(null);
+    const [showModal, setShowModal] = useState(false);
+    const [activeTab, setActiveTab] = useState("pessoal");
+    const [saving, setSaving] = useState(false);
 
-    // Função para formatar telefone em tempo real
+    const [formClient, setFormClient] = useState<Partial<Cliente>>({
+        nome: "", telefone: "", mapeamento_olhar: "", anamnese: defaultAnamnese
+    });
+
+    // --- Helpers ---
     function formatTelefone(val: string) {
         const cleaned = val.replace(/\D/g, "");
-        if (cleaned.length <= 10) {
-            return cleaned.replace(/(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3").trim();
-        }
+        if (cleaned.length <= 10) return cleaned.replace(/(\d{2})(\d{4})(\d{0,4})/, "($1) $2-$3").trim();
         return cleaned.replace(/(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3").trim();
     }
 
-    // Buscar clientes do banco
     async function fetchClients() {
         setLoading(true);
-        const { data, error } = await supabase
-            .from("clientes")
-            .select("*")
-            .order("nome");
-
-        if (error) {
-            console.error("Erro ao buscar clientes:", error);
-        } else {
-            setClients(data || []);
-        }
+        const { data, error } = await supabase.from("clientes").select("*").order("nome");
+        if (!error) setClients(data || []);
         setLoading(false);
     }
 
-    useEffect(() => {
-        fetchClients();
-    }, []);
+    useEffect(() => { fetchClients(); }, []);
 
-    const [showModal, setShowModal] = useState(false);
-    const [showAnamneseModal, setShowAnamneseModal] = useState(false);
-    const [selectedClientForAnamnese, setSelectedClientForAnamnese] = useState<Cliente | null>(null);
-
-    const [newClient, setNewClient] = useState({
-        nome: "",
-        telefone: "",
-        mapeamento_olhar: "",
-        anamnese: {
-            alergias: "",
-            problemas_oculares: "",
-            gestante: false,
-            lentes_contato: false,
-            dorme_lado: "",
-            observacoes_saude: ""
-        }
-    });
-
-    // Salvar ou Atualizar cliente
-    async function handleAddClient(e: React.FormEvent) {
-        e.preventDefault();
-
-        const { error } = editingId
-            ? await supabase.from("clientes").update(newClient).eq("id", editingId)
-            : await supabase.from("clientes").insert([newClient]);
-
-        if (error) {
-            alert("Erro ao salvar cliente: " + error.message);
+    // --- Handlers ---
+    function handleOpenModal(client?: Cliente) {
+        if (client) {
+            // Merge anamnese atual com default para garantir que novos campos existam
+            setFormClient({
+                ...client,
+                anamnese: { ...defaultAnamnese, ...(client.anamnese || {}) }
+            });
         } else {
-            setShowModal(false);
-            setEditingId(null);
-            resetForm();
-            fetchClients();
+            setFormClient({ nome: "", telefone: "", mapeamento_olhar: "", anamnese: defaultAnamnese });
         }
-    }
-
-    function resetForm() {
-        setNewClient({
-            nome: "",
-            telefone: "",
-            mapeamento_olhar: "",
-            anamnese: {
-                alergias: "",
-                problemas_oculares: "",
-                gestante: false,
-                lentes_contato: false,
-                dorme_lado: "",
-                observacoes_saude: ""
-            }
-        });
-    }
-
-    function handleEdit(client: Cliente) {
-        setEditingId(client.id);
-        setNewClient({
-            nome: client.nome,
-            telefone: client.telefone,
-            mapeamento_olhar: client.mapeamento_olhar || "",
-            //@ts-ignore
-            anamnese: client.anamnese || {
-                alergias: "",
-                problemas_oculares: "",
-                gestante: false,
-                lentes_contato: false,
-                dorme_lado: "",
-                observacoes_saude: ""
-            }
-        });
+        setActiveTab("pessoal");
         setShowModal(true);
     }
 
+    async function handleSave(e: React.FormEvent) {
+        e.preventDefault();
+        setSaving(true);
+
+        const payload = {
+            nome: formClient.nome,
+            telefone: formClient.telefone,
+            mapeamento_olhar: formClient.mapeamento_olhar,
+            anamnese: formClient.anamnese
+        };
+
+        const { error } = formClient.id
+            ? await supabase.from("clientes").update(payload).eq("id", formClient.id)
+            : await supabase.from("clientes").insert([payload]);
+
+        if (error) {
+            alert("Erro ao salvar: " + error.message);
+        } else {
+            setShowModal(false);
+            fetchClients();
+        }
+        setSaving(false);
+    }
+
     async function handleDelete(id: string) {
-        if (confirm("Deseja excluir esta cliente?")) {
+        if (confirm("Tem certeza que deseja excluir esta cliente?")) {
             await supabase.from("clientes").delete().eq("id", id);
             fetchClients();
         }
     }
 
     function sendAnamnese(client: Cliente) {
-        const quest = `Olá ${client.nome}! ✨ Para garantir o melhor resultado e sua segurança, poderia preencher estas informações rapidinho? 😊
-        
-1. Possui alergias? (Esmalte, maquiagem, adesivos, etc)
-2. Algum problema ocular recente?
-3. Está gestante?
-4. Usa lentes de contato?
-5. Dorme de qual lado?
-6. Alguma outra observação de saúde?
-
-É só responder aqui embaixo! Muito obrigada! 💖`;
-        const url = `https://api.whatsapp.com/send?phone=55${client.telefone.replace(/\D/g, '')}&text=${encodeURIComponent(quest)}`;
+        const url = `https://api.whatsapp.com/send?phone=55${client.telefone.replace(/\D/g, '')}&text=Olá ${encodeURIComponent(client.nome)}! Poderia vir até o estúdio para preenchermos sua ficha de anamnese?`;
         window.open(url, '_blank');
     }
 
+    // --- Components ---
+    const TabButton = ({ id, icon: Icon, label }: any) => (
+        <button
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-all font-bold text-sm flex-1 justify-center
+                ${activeTab === id ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-105' : 'bg-muted/30 text-muted-foreground hover:bg-muted/50'}`}
+        >
+            <Icon className="w-4 h-4" /> <span className="hidden md:inline">{label}</span>
+        </button>
+    );
+
+    const CheckField = ({ label, checked, onChange, alert }: any) => (
+        <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${checked ? (alert ? 'bg-red-50 border-red-200' : 'bg-primary/5 border-primary/20') : 'bg-white border-border hover:border-primary/50'}`}>
+            <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="w-5 h-5 accent-primary rounded-lg" />
+            <span className={`font-medium text-sm ${alert && checked ? 'text-red-600 font-bold' : 'text-foreground'}`}>{label}</span>
+            {alert && checked && <AlertTriangle className="w-4 h-4 text-red-500 ml-auto animate-pulse" />}
+        </label>
+    );
+
+    const updateAnamnese = (field: keyof AnamneseCompleta, value: any) => {
+        setFormClient(prev => ({
+            ...prev,
+            anamnese: { ...prev.anamnese!, [field]: value }
+        }));
+    };
+
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header className="flex justify-between items-center">
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold text-foreground">Clientes</h2>
-                    <p className="text-muted-foreground">Gerencie sua lista de clientes e histórias reais.</p>
+                    <h2 className="text-3xl font-black text-foreground tracking-tight">Clientes & Anamneses</h2>
+                    <p className="text-muted-foreground font-medium">Gestão completa de fichas e histórico.</p>
                 </div>
                 <button
-                    onClick={() => { setEditingId(null); resetForm(); setShowModal(true); }}
-                    className="bg-primary text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+                    onClick={() => handleOpenModal()}
+                    className="bg-primary text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 active:scale-95"
                 >
                     <UserPlus className="w-5 h-5" />
                     Nova Cliente
                 </button>
             </header>
 
-            {/* Modal de Cadastro/Edição */}
-            {showModal && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 space-y-6 animate-in zoom-in-95 duration-200">
-                        <div className="flex justify-between items-center">
-                            <h3 className="text-xl font-bold">{editingId ? "Editar Cliente" : "Cadastrar Nova Cliente"}</h3>
-                            <button onClick={() => { setShowModal(false); setEditingId(null); }} className="text-muted-foreground hover:text-foreground">
-                                <X className="w-6 h-6" />
-                            </button>
+            {/* Lista de Clientes */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {clients.map(client => (
+                    <div key={client.id} className="bg-white p-6 rounded-[2rem] border border-border hover:shadow-xl transition-all group relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <button onClick={() => handleDelete(client.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
                         </div>
 
-                        <form onSubmit={handleAddClient} className="space-y-4">
-                            <div>
-                                <label className="text-sm font-semibold block mb-1">Nome Completo</label>
-                                <input
-                                    required
-                                    type="text"
-                                    value={newClient.nome}
-                                    onChange={e => setNewClient({ ...newClient, nome: e.target.value })}
-                                    className="w-full p-3 rounded-xl border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
-                                    placeholder="Ex: Maria dos Santos"
-                                />
+                        <div className="flex items-center gap-4 mb-4">
+                            <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center text-primary font-black text-lg">
+                                {client.nome.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                                <label className="text-sm font-semibold block mb-1">Telefone / WhatsApp</label>
-                                <input
-                                    required
-                                    type="text"
-                                    value={newClient.telefone}
-                                    onChange={e => setNewClient({ ...newClient, telefone: formatTelefone(e.target.value) })}
-                                    className="w-full p-3 rounded-xl border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
-                                    placeholder="(00) 00000-0000"
-                                />
+                                <h3 className="font-bold text-lg text-foreground">{client.nome}</h3>
+                                <div className="flex items-center gap-2 text-muted-foreground text-sm font-medium">
+                                    <Phone className="w-3 h-3" /> {client.telefone}
+                                </div>
                             </div>
-                            <div>
-                                <label className="text-sm font-semibold block mb-1 text-primary">Alergias (Importante 🚨)</label>
-                                <input
-                                    type="text"
-                                    value={newClient.anamnese.alergias}
-                                    onChange={e => setNewClient({ ...newClient, anamnese: { ...newClient.anamnese, alergias: e.target.value } })}
-                                    className={`w-full p-3 rounded-xl border focus:ring-2 outline-none transition-all ${newClient.anamnese.alergias ? 'border-red-200 bg-red-50 focus:ring-red-500' : 'border-border focus:ring-primary'}`}
-                                    placeholder="Ex: Nenhuma ou Alergia a maquiagem"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-sm font-semibold block mb-1">Observações (Lash Map)</label>
-                                <textarea
-                                    value={newClient.mapeamento_olhar}
-                                    onChange={e => setNewClient({ ...newClient, mapeamento_olhar: e.target.value })}
-                                    className="w-full p-3 rounded-xl border border-border focus:ring-2 focus:ring-primary outline-none transition-all h-20"
-                                    placeholder="Ex: Tamanho 12, curvatura D..."
-                                />
-                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {client.anamnese?.saude_alergias && (
+                                <div className="flex items-center gap-2 text-xs font-bold text-red-600 bg-red-50 px-3 py-2 rounded-lg border border-red-100">
+                                    <AlertCircle className="w-3 h-3" /> Possui Alergias
+                                </div>
+                            )}
+                            {client.anamnese?.saude_gestante && (
+                                <div className="flex items-center gap-2 text-xs font-bold text-purple-600 bg-purple-50 px-3 py-2 rounded-lg border border-purple-100">
+                                    <Activity className="w-3 h-3" /> Gestante
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 flex gap-3">
                             <button
-                                type="submit"
-                                className="w-full bg-primary text-white font-bold py-4 rounded-2xl hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
+                                onClick={() => handleOpenModal(client)}
+                                className="flex-1 bg-foreground text-white py-3 rounded-xl font-bold text-sm hover:bg-primary transition-colors flex items-center justify-center gap-2"
                             >
-                                {editingId ? "Salvar Alterações" : "Salvar Cadastro"}
+                                <ClipboardList className="w-4 h-4" /> Abrir Prontuário
                             </button>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            <div className="bg-white rounded-3xl border border-border overflow-hidden shadow-sm">
-                <div className="p-6 border-b border-border bg-muted/20 flex gap-4">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                        <input
-                            type="text"
-                            placeholder="Buscar por nome..."
-                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-border focus:ring-2 focus:ring-primary outline-none transition-all bg-white"
-                        />
-                    </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                    {loading ? (
-                        <div className="p-12 flex flex-col items-center gap-4">
-                            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                            <p className="text-muted-foreground animate-pulse font-medium">Carregando suas clientes...</p>
+                            <a
+                                href={`https://api.whatsapp.com/send?phone=55${client.telefone.replace(/\D/g, '')}`}
+                                target="_blank"
+                                className="p-3 border border-border rounded-xl text-green-600 hover:bg-green-50 transition-colors"
+                            >
+                                <Phone className="w-5 h-5" />
+                            </a>
                         </div>
-                    ) : clients.length === 0 ? (
-                        <div className="p-12 text-center space-y-2">
-                            <p className="text-lg font-bold text-muted-foreground">Nenhuma cliente cadastrada ainda.</p>
-                            <p className="text-sm text-muted-foreground">Comece clicando no botão "Nova Cliente" lá em cima!</p>
-                        </div>
-                    ) : (
-                        <table className="w-full text-left">
-                            <thead>
-                                <tr className="bg-muted/10">
-                                    <th className="px-6 py-4 text-sm font-semibold text-muted-foreground">Nome</th>
-                                    <th className="px-6 py-4 text-sm font-semibold text-muted-foreground">Telefone</th>
-                                    <th className="px-6 py-4 text-sm font-semibold text-muted-foreground">Histórico / Obs</th>
-                                    <th className="px-6 py-4 text-sm font-semibold text-muted-foreground text-center">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                                {clients.map((client) => (
-                                    <tr key={client.id} className="hover:bg-muted/30 transition-colors group">
-                                        <td className="px-6 py-4 font-medium">{client.nome}</td>
-                                        <td className="px-6 py-4 text-muted-foreground">{client.telefone}</td>
-                                        <td className="px-6 py-4">
-                                            <div className="space-y-1">
-                                                <span className="text-xs bg-secondary/50 text-foreground px-3 py-1 rounded-full font-medium block w-fit">
-                                                    {client.mapeamento_olhar || "Sem histórico"}
-                                                </span>
-                                                {client.anamnese?.alergias && (
-                                                    <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-lg font-black uppercase flex items-center gap-1 w-fit border border-red-200 animate-pulse">
-                                                        <AlertTriangle className="w-3 h-3" /> Alergia: {client.anamnese.alergias}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex justify-center gap-2">
-                                                <button
-                                                    onClick={() => handleEdit(client)}
-                                                    className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                                                    title="Editar"
-                                                >
-                                                    <Edit3 className="w-4 h-4" />
-                                                </button>
-                                                <a
-                                                    href={`https://api.whatsapp.com/send?phone=55${client.telefone.replace(/\D/g, '')}`}
-                                                    target="_blank"
-                                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                                    title="WhatsApp"
-                                                >
-                                                    <Phone className="w-4 h-4" />
-                                                </a>
-                                                <button
-                                                    onClick={() => { setSelectedClientForAnamnese(client); setShowAnamneseModal(true); }}
-                                                    className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
-                                                    title="Ficha Health"
-                                                >
-                                                    <ClipboardList className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => sendAnamnese(client)}
-                                                    className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                                                    title="Enviar Anamnese"
-                                                >
-                                                    <Send className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(client.id)}
-                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="Excluir"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
+                    </div>
+                ))}
             </div>
 
-            {/* Modal de Anamnese Detalhada */}
-            {showAnamneseModal && selectedClientForAnamnese && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[120] flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl p-10 space-y-8 animate-in zoom-in-95 duration-300 border border-white/20">
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-orange-100 p-3 rounded-2xl text-orange-600">
-                                    <ClipboardList className="w-6 h-6" />
-                                </div>
-                                <div>
-                                    <h3 className="text-2xl font-black text-foreground tracking-tight">Ficha de Saúde</h3>
-                                    <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">{selectedClientForAnamnese.nome}</p>
-                                </div>
+            {/* Modal Completo */}
+            {showModal && formClient.anamnese && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-[2.5rem] shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+                        {/* Header Modal */}
+                        <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20 rounded-t-[2.5rem]">
+                            <div>
+                                <h3 className="text-2xl font-black text-foreground">Ficha de Anamnese</h3>
+                                <p className="text-muted-foreground font-medium text-sm">Prontuário Digital • {formClient.nome || "Nova Cliente"}</p>
                             </div>
-                            <button onClick={() => setShowAnamneseModal(false)} className="text-muted-foreground hover:text-foreground p-2 hover:bg-muted rounded-xl transition-all">
-                                <X className="w-6 h-6" />
-                            </button>
+                            <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white rounded-full transition-all"><X className="w-6 h-6 text-muted-foreground" /></button>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-4">
-                                <div className="p-4 bg-muted/20 rounded-2xl border border-border">
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input
-                                            type="checkbox"
-                                            className="w-5 h-5 rounded-lg border-border text-primary focus:ring-primary accent-primary"
-                                            checked={selectedClientForAnamnese.anamnese?.gestante || false}
-                                            onChange={async (e) => {
-                                                const currentAnamnese = selectedClientForAnamnese.anamnese || {};
-                                                const updated = {
-                                                    ...selectedClientForAnamnese,
-                                                    anamnese: { ...currentAnamnese, gestante: e.target.checked }
-                                                };
-                                                //@ts-ignore
-                                                await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
-                                                setSelectedClientForAnamnese(updated);
-                                                fetchClients();
-                                            }}
-                                        />
-                                        <span className="font-bold text-sm text-foreground">Gestante</span>
-                                    </label>
-                                </div>
-                                <div className="p-4 bg-muted/20 rounded-2xl border border-border">
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input
-                                            type="checkbox"
-                                            className="w-5 h-5 rounded-lg border-border text-primary focus:ring-primary accent-primary"
-                                            checked={selectedClientForAnamnese.anamnese?.lentes_contato || false}
-                                            onChange={async (e) => {
-                                                const currentAnamnese = selectedClientForAnamnese.anamnese || {};
-                                                const updated = {
-                                                    ...selectedClientForAnamnese,
-                                                    anamnese: { ...currentAnamnese, lentes_contato: e.target.checked }
-                                                };
-                                                //@ts-ignore
-                                                await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
-                                                setSelectedClientForAnamnese(updated);
-                                                fetchClients();
-                                            }}
-                                        />
-                                        <span className="font-bold text-sm text-foreground">Lentes de Contato</span>
-                                    </label>
-                                </div>
-                            </div>
+                        {/* Tabs */}
+                        <div className="px-8 pt-6 flex gap-2 overflow-x-auto pb-2">
+                            <TabButton id="pessoal" icon={User} label="Pessoal" />
+                            <TabButton id="saude" icon={Activity} label="Saúde" />
+                            <TabButton id="estetica" icon={Eye} label="Estética & Olhar" />
+                            <TabButton id="termos" icon={FileText} label="Termos" />
+                        </div>
 
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Lado que Dorme</label>
-                                <select
-                                    className="w-full p-4 rounded-2xl border border-border bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-primary/10"
-                                    value={selectedClientForAnamnese.anamnese?.dorme_lado || ""}
-                                    onChange={async (e) => {
-                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
-                                        const updated = {
-                                            ...selectedClientForAnamnese,
-                                            anamnese: { ...currentAnamnese, dorme_lado: e.target.value }
-                                        };
-                                        //@ts-ignore
-                                        await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
-                                        setSelectedClientForAnamnese(updated);
-                                        fetchClients();
-                                    }}
+                        {/* Content Scrollable */}
+                        <div className="flex-1 overflow-y-auto p-8">
+                            <form id="anamneseForm" onSubmit={handleSave} className="space-y-8">
+
+                                {/* TAB: PESSOAL */}
+                                {activeTab === "pessoal" && (
+                                    <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Nome Completo</label>
+                                                <input required value={formClient.nome} onChange={e => setFormClient({ ...formClient, nome: e.target.value })} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="Nome da cliente" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Telefone</label>
+                                                <input required value={formClient.telefone} onChange={e => setFormClient({ ...formClient, telefone: formatTelefone(e.target.value) })} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="(00) 00000-0000" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Data de Nascimento</label>
+                                                <input type="date" value={formClient.anamnese.data_nascimento} onChange={e => updateAnamnese("data_nascimento", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Profissão</label>
+                                                <input value={formClient.anamnese.profissao} onChange={e => updateAnamnese("profissao", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="Ex: Advogada" />
+                                            </div>
+                                            <div className="space-y-1 md:col-span-2">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Endereço</label>
+                                                <input value={formClient.anamnese.endereco} onChange={e => updateAnamnese("endereco", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="Rua, Número, Bairro..." />
+                                            </div>
+                                            <div className="space-y-1 md:col-span-2">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Instagram</label>
+                                                <input value={formClient.anamnese.instagram} onChange={e => updateAnamnese("instagram", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-primary/10" placeholder="@usuario" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* TAB: SAUDE */}
+                                {activeTab === "saude" && (
+                                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4">
+                                        <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-3 text-orange-800 text-sm font-medium">
+                                            <AlertCircle className="w-5 h-5" />
+                                            Marque todas as condições que se aplicam. Itens em vermelho são de atenção!
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            <CheckField label="Alergias" checked={formClient.anamnese.saude_alergias} onChange={(v: boolean) => updateAnamnese("saude_alergias", v)} alert />
+                                            <CheckField label="Dermatite" checked={formClient.anamnese.saude_dermatite} onChange={(v: boolean) => updateAnamnese("saude_dermatite", v)} alert />
+                                            <CheckField label="Problemas Oculares" checked={formClient.anamnese.saude_ocular} onChange={(v: boolean) => updateAnamnese("saude_ocular", v)} alert />
+                                            <CheckField label="Sensibilidade na Pele" checked={formClient.anamnese.saude_sensibilidade} onChange={(v: boolean) => updateAnamnese("saude_sensibilidade", v)} />
+                                            <CheckField label="Herpes" checked={formClient.anamnese.saude_herpes} onChange={(v: boolean) => updateAnamnese("saude_herpes", v)} alert />
+                                            <CheckField label="Doenças Autoimunes" checked={formClient.anamnese.saude_autoimune} onChange={(v: boolean) => updateAnamnese("saude_autoimune", v)} />
+                                            <CheckField label="Diabetes" checked={formClient.anamnese.saude_diabetes} onChange={(v: boolean) => updateAnamnese("saude_diabetes", v)} />
+                                            <CheckField label="Hipertensão" checked={formClient.anamnese.saude_hipertensao} onChange={(v: boolean) => updateAnamnese("saude_hipertensao", v)} />
+                                            <CheckField label="Problemas Hormonais" checked={formClient.anamnese.saude_hormonal} onChange={(v: boolean) => updateAnamnese("saude_hormonal", v)} />
+                                            <CheckField label="Gravidez / Amamentando" checked={formClient.anamnese.saude_gestante} onChange={(v: boolean) => updateAnamnese("saude_gestante", v)} alert />
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Medicamentos em uso</label>
+                                                <textarea value={formClient.anamnese.saude_medicamentos} onChange={e => updateAnamnese("saude_medicamentos", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl text-sm font-medium outline-none focus:ring-4 focus:ring-primary/10 h-24" placeholder="Lista de medicamentos e ácidos..." />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Observações / Outros</label>
+                                                <textarea value={formClient.anamnese.saude_outros} onChange={e => updateAnamnese("saude_outros", e.target.value)} className="w-full p-4 bg-muted/30 border border-border rounded-2xl text-sm font-medium outline-none focus:ring-4 focus:ring-primary/10 h-24" placeholder="Detalhes adicionais de saúde..." />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* TAB: ESTETICA & TECNICA */}
+                                {activeTab === "estetica" && (
+                                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4">
+                                        <div>
+                                            <h4 className="text-lg font-black text-foreground mb-4 flex items-center gap-2"><Eye className="w-5 h-5 text-primary" /> Histórico Estético</h4>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-muted/20 p-6 rounded-[2rem]">
+                                                <CheckField label="Extensão de Cílios" checked={formClient.anamnese.estetico_extensao} onChange={(v: boolean) => updateAnamnese("estetico_extensao", v)} />
+                                                <CheckField label="Lash Lifting" checked={formClient.anamnese.estetico_lash_lifting} onChange={(v: boolean) => updateAnamnese("estetico_lash_lifting", v)} />
+                                                <CheckField label="Brow Lamination" checked={formClient.anamnese.estetico_brow_lamination} onChange={(v: boolean) => updateAnamnese("estetico_brow_lamination", v)} />
+                                                <CheckField label="Design Sobranc." checked={formClient.anamnese.estetico_design} onChange={(v: boolean) => updateAnamnese("estetico_design", v)} />
+                                                <CheckField label="Dermaplaning" checked={formClient.anamnese.estetico_dermaplaning} onChange={(v: boolean) => updateAnamnese("estetico_dermaplaning", v)} />
+                                                <CheckField label="Epilação Facial" checked={formClient.anamnese.estetico_epilacao} onChange={(v: boolean) => updateAnamnese("estetico_epilacao", v)} />
+                                                <CheckField label="Hidragloss" checked={formClient.anamnese.estetico_hidragloss} onChange={(v: boolean) => updateAnamnese("estetico_hidragloss", v)} />
+                                                <CheckField label="Reconstrução" checked={formClient.anamnese.estetico_reconstrucao} onChange={(v: boolean) => updateAnamnese("estetico_reconstrucao", v)} />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <h4 className="text-lg font-black text-foreground mb-4 flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Avaliação Técnica (Profissional)</h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white border border-border p-6 rounded-[2rem] shadow-sm">
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Tipo de Pele</label>
+                                                    <input value={formClient.anamnese.tec_tipo_pele} onChange={e => updateAnamnese("tec_tipo_pele", e.target.value)} className="w-full p-3 bg-muted/30 border border-border rounded-xl font-bold text-sm" placeholder="Ex: Oleosa, Mista..." />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Espessura do Fio</label>
+                                                    <input value={formClient.anamnese.tec_espessura} onChange={e => updateAnamnese("tec_espessura", e.target.value)} className="w-full p-3 bg-muted/30 border border-border rounded-xl font-bold text-sm" placeholder="Ex: Fino, Médio, Grosso" />
+                                                    <span className="text-[10px] text-muted-foreground ml-1">ℹ️ Importante para definir o peso da extensão</span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Direção de Crescimento</label>
+                                                    <input value={formClient.anamnese.tec_direcao} onChange={e => updateAnamnese("tec_direcao", e.target.value)} className="w-full p-3 bg-muted/30 border border-border rounded-xl font-bold text-sm" placeholder="Ex: Reto, Descendente" />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Falhas / Assimetria</label>
+                                                    <input value={formClient.anamnese.tec_falhas} onChange={e => updateAnamnese("tec_falhas", e.target.value)} className="w-full p-3 bg-muted/30 border border-border rounded-xl font-bold text-sm" placeholder="Ex: Falha no final da cauda esq." />
+                                                </div>
+                                                <div className="space-y-1 md:col-span-2">
+                                                    <label className="text-xs font-black uppercase text-muted-foreground tracking-widest ml-1">Contraindicações Presentes</label>
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+                                                        <CheckField label="Olhos Irritados" checked={formClient.anamnese.contra_olhos_irritados} onChange={(v: boolean) => updateAnamnese("contra_olhos_irritados", v)} alert />
+                                                        <CheckField label="Conjuntivite" checked={formClient.anamnese.contra_conjuntivite} onChange={(v: boolean) => updateAnamnese("contra_conjuntivite", v)} alert />
+                                                        <CheckField label="Feridas" checked={formClient.anamnese.contra_feridas} onChange={(v: boolean) => updateAnamnese("contra_feridas", v)} alert />
+                                                        <CheckField label="Química Recente" checked={formClient.anamnese.contra_quimica_recente} onChange={(v: boolean) => updateAnamnese("contra_quimica_recente", v)} alert />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* TAB: TERMOS */}
+                                {activeTab === "termos" && (
+                                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4 text-center py-8">
+                                        <div className="max-w-md mx-auto space-y-6">
+                                            <FileText className="w-16 h-16 text-muted-foreground/30 mx-auto" />
+                                            <h3 className="text-xl font-bold text-foreground">Termo de Consentimento</h3>
+                                            <p className="text-muted-foreground text-sm">
+                                                Declaro que informei corretamente meu histórico de saúde, estou ciente dos cuidados pré e pós procedimento e autorizo a realização do procedimento escolhido.
+                                            </p>
+
+                                            <div className="bg-muted/30 p-6 rounded-2xl text-left space-y-4">
+                                                <label className="flex items-center gap-4 cursor-pointer">
+                                                    <input type="checkbox" className="w-6 h-6 accent-primary" checked={formClient.anamnese.termo_aceito} onChange={e => updateAnamnese("termo_aceito", e.target.checked)} />
+                                                    <span className="font-bold text-sm">Li e concordo com os termos de serviço e cuidados.</span>
+                                                </label>
+                                                <label className="flex items-center gap-4 cursor-pointer">
+                                                    <input type="checkbox" className="w-6 h-6 accent-primary" checked={formClient.anamnese.uso_imagem} onChange={e => updateAnamnese("uso_imagem", e.target.checked)} />
+                                                    <span className="font-bold text-sm">Autorizo o uso de imagens (fotos/vídeos) para divulgação.</span>
+                                                </label>
+                                            </div>
+
+                                            <div className="pt-4">
+                                                <label className="text-xs font-black uppercase text-muted-foreground tracking-widest mb-1 block">Assinado em</label>
+                                                <input type="date" className="p-3 bg-white border border-border rounded-xl font-bold text-center w-full" value={formClient.anamnese.data_assinatura} onChange={e => updateAnamnese("data_assinatura", e.target.value)} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                            </form>
+                        </div>
+
+                        {/* Footer Fixo */}
+                        <div className="p-6 border-t border-border bg-white rounded-b-[2.5rem] flex justify-between items-center">
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest hidden md:block">
+                                Passo {["pessoal", "saude", "estetica", "termos"].indexOf(activeTab) + 1} de 4
+                            </span>
+                            <div className="flex gap-4 w-full md:w-auto">
+                                <button
+                                    onClick={() => setShowModal(false)}
+                                    className="px-6 py-4 rounded-xl font-bold text-muted-foreground hover:bg-muted transition-all"
                                 >
-                                    <option value="">Não informado</option>
-                                    <option value="Direito">Direito</option>
-                                    <option value="Esquerdo">Esquerdo</option>
-                                    <option value="Costas">Costas</option>
-                                    <option value="Barriga">Barriga</option>
-                                </select>
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    form="anamneseForm"
+                                    disabled={saving}
+                                    className="flex-1 md:flex-none px-8 py-4 bg-primary text-white rounded-xl font-black shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                >
+                                    {saving ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle className="w-5 h-5" />}
+                                    {saving ? "Salvando..." : "Salvar Prontuário"}
+                                </button>
                             </div>
                         </div>
-
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Alergias e Restrições 🚨</label>
-                                <textarea
-                                    className="w-full p-4 p-4 rounded-2xl border border-border bg-red-50/30 font-bold text-sm text-red-600 outline-none focus:ring-4 focus:ring-red-500/10 placeholder:text-red-300"
-                                    placeholder="Descreva aqui qualquer alergia..."
-                                    value={selectedClientForAnamnese.anamnese?.alergias || ""}
-                                    onChange={async (e) => {
-                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
-                                        const updated = {
-                                            ...selectedClientForAnamnese,
-                                            anamnese: { ...currentAnamnese, alergias: e.target.value }
-                                        };
-                                        //@ts-ignore
-                                        await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
-                                        setSelectedClientForAnamnese(updated);
-                                        fetchClients();
-                                    }}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Outras Obs. de Saúde</label>
-                                <textarea
-                                    className="w-full p-4 rounded-2xl border border-border bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-primary/10 h-24"
-                                    placeholder="Problemas oculares, irritações, etc..."
-                                    value={selectedClientForAnamnese.anamnese?.observacoes_saude || ""}
-                                    onChange={async (e) => {
-                                        const currentAnamnese = selectedClientForAnamnese.anamnese || {};
-                                        const updated = {
-                                            ...selectedClientForAnamnese,
-                                            anamnese: { ...currentAnamnese, observacoes_saude: e.target.value }
-                                        };
-                                        //@ts-ignore
-                                        await supabase.from("clientes").update(updated).eq("id", selectedClientForAnamnese.id);
-                                        setSelectedClientForAnamnese(updated);
-                                        fetchClients();
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        <button onClick={() => setShowAnamneseModal(false)} className="w-full bg-foreground text-white font-black py-4 rounded-2xl hover:bg-primary transition-all flex items-center justify-center gap-2">
-                            <CheckCircle className="w-5 h-5" />
-                            Finalizar e Fechar Prontuário
-                        </button>
                     </div>
                 </div>
             )}
