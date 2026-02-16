@@ -686,6 +686,8 @@ export default function CalendarPage() {
                                             <input
                                                 type="time"
                                                 required
+                                                min={config?.hora_inicio?.substring(0, 5) || "09:00"}
+                                                max={config?.hora_fim?.substring(0, 5) || "18:00"}
                                                 className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold"
                                                 value={newApp.hora}
                                                 onChange={e => setNewApp({ ...newApp, hora: e.target.value })}
