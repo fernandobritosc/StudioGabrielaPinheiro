@@ -41,6 +41,7 @@ export default function CalendarPage() {
 
     const [clientAlert, setClientAlert] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isRescheduling, setIsRescheduling] = useState(false); // Novo: controle de reagendamento
 
     // Estados para o Sinal
     const [receiveSignal, setReceiveSignal] = useState(false);
@@ -148,7 +149,7 @@ export default function CalendarPage() {
                 .not("ciclo_cilios", "is", null)
                 .order("horario", { ascending: false })
                 .limit(1)
-                .single();
+                .maybeSingle();
 
             if (lastApp && lastApp.ciclo_cilios) {
                 const last = lastApp.ciclo_cilios;
@@ -294,9 +295,18 @@ export default function CalendarPage() {
             cursor = new Date(appEnd.getTime() + buffer * 60000);
         });
 
+        console.log('📅 Timeline Debug:', {
+            horarioFuncionamento: `${config.hora_inicio} - ${config.hora_fim}`,
+            dayStart: dayStart.toLocaleTimeString('pt-BR'),
+            dayEnd: dayEnd.toLocaleTimeString('pt-BR'),
+            cursor: cursor.toLocaleTimeString('pt-BR'),
+            totalItems: items.length
+        });
+
         // Espaço livre até o fim do expediente
         if (cursor < dayEnd) {
             const diff = (dayEnd.getTime() - cursor.getTime()) / 60000;
+            console.log(`✅ Adicionando espaço livre final: ${diff} minutos`);
             if (diff >= 1) {
                 items.push({
                     type: 'free',
@@ -305,6 +315,8 @@ export default function CalendarPage() {
                     duration: diff
                 });
             }
+        } else {
+            console.log('⚠️ Cursor já passou do horário de fechamento');
         }
 
         return items;
@@ -317,49 +329,101 @@ export default function CalendarPage() {
         const selectedService = services.find(s => s.id === newApp.servico_id);
         if (!selectedService) return [];
 
-        const duration = selectedService.duracao_minutos;
+        const [startH, startM] = config.hora_inicio.split(':').map(Number);
+        const [endH, endM] = config.hora_fim.split(':').map(Number);
+
+        const dayStart = new Date(selectedDate);
+        dayStart.setHours(startH, startM, 0, 0);
+        const dayEnd = new Date(selectedDate);
+        dayEnd.setHours(endH, endM, 0, 0);
+
         const slots: string[] = [];
+        let current = new Date(dayStart);
 
-        // Percorre cada slot livre da timeline e extrai os horários possíveis
-        timelineData.filter(item => item.type === 'free').forEach(slot => {
-            if (slot.duration >= duration) { // O serviço cabe
-                let current = new Date(slot.start);
-                const limit = new Date(slot.end.getTime() - duration * 60000);
+        // Gerar slots de 15 em 15 minutos durante todo o expediente
+        while (current < dayEnd) {
+            slots.push(current.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+            current = new Date(current.getTime() + 15 * 60000);
+        }
 
-                while (current <= limit) {
-                    slots.push(current.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-                    current = new Date(current.getTime() + 15 * 60000); // Sugere de 15 em 15 min
-                }
-            }
-        });
+        // Se estiver editando, garantir que o horário atual está na lista
+        if (editingId && newApp.hora && !slots.includes(newApp.hora)) {
+            slots.push(newApp.hora);
+            slots.sort();
+        }
 
         return slots;
-    }, [timelineData, newApp.servico_id, services, config]);
+    }, [config, newApp.servico_id, services, selectedDate, editingId, newApp.hora]);
 
     async function handleAddAppointment(e: React.FormEvent) {
         e.preventDefault();
         setIsSaving(true);
+
+        const selectedService = services.find(s => s.id === newApp.servico_id);
+        if (!selectedService) {
+            alert("Serviço não encontrado");
+            setIsSaving(false);
+            return;
+        }
+
         const localDateTime = new Date(`${newApp.data}T${newApp.hora}:00`);
         const isoString = localDateTime.toISOString();
 
-        const selectedService = services.find(s => s.id === newApp.servico_id);
-        const duration = selectedService?.duracao_minutos || 60;
-        const buffer = 15;
-        const newStart = localDateTime.getTime();
-        const newEnd = newStart + (duration + buffer) * 60000;
+        // Validar conflito de horário - buscar agendamentos do banco para a data específica
+        const appointmentEnd = new Date(localDateTime.getTime() + selectedService.duracao_minutos * 60000);
 
-        const hasOverlap = appointments.some(app => {
-            if (editingId && app.id === editingId) return false;
-            // Ignorar agendamentos desmarcados para permitir encaixe
-            if (app.status === 'desmarcou') return false;
+        // Buscar agendamentos do mesmo dia DIRETO DO BANCO
+        const { data: sameDayAppointments, error: fetchError } = await supabase
+            .from("agendamentos")
+            .select("id, horario, status, servicos(duracao_minutos), clientes(nome)")
+            .gte("horario", `${newApp.data}T00:00:00`)
+            .lt("horario", `${newApp.data}T23:59:59`)
+            .neq("status", "desmarcou");
 
-            const appStart = new Date(app.horario).getTime();
-            const appEnd = appStart + (app.servicos?.duracao_minutos + buffer) * 60000;
-            return (newStart < appEnd && newEnd > appStart);
+        if (fetchError) {
+            console.error("Erro ao buscar agendamentos:", fetchError);
+        }
+
+        console.log('🔍 Verificando conflitos:', {
+            novoHorario: localDateTime.toLocaleString('pt-BR'),
+            novoFim: appointmentEnd.toLocaleString('pt-BR'),
+            agendamentosMesmoDia: sameDayAppointments?.length || 0,
+            editandoId: editingId,
+            data: newApp.data
         });
 
-        if (hasOverlap) {
-            alert("⚠️ CONFLITO DE HORÁRIO! O sistema reserva 15min entre clientes.");
+        // Verificar conflitos com agendamentos existentes
+        const hasConflict = sameDayAppointments?.some(app => {
+            // Se estiver editando, ignora o próprio agendamento
+            if (editingId && app.id === editingId) {
+                console.log('⏭️ Ignorando próprio agendamento');
+                return false;
+            }
+            // Ignorar agendamentos desmarcados
+            // A query já filtra por status !== 'desmarcou', mas mantemos a verificação defensiva
+            if (app.status === 'desmarcou') {
+                console.log('⏭️ Ignorando agendamento desmarcado (defensivo)');
+                return false;
+            }
+
+            const existingStart = new Date(app.horario);
+            const existingEnd = new Date(existingStart.getTime() + ((app.servicos as any)?.duracao_minutos || 0) * 60000);
+
+            const overlap = (localDateTime < existingEnd && appointmentEnd > existingStart);
+
+            if (overlap) {
+                console.log('❌ CONFLITO DETECTADO:', {
+                    cliente: (app.clientes as any)?.nome,
+                    existente: `${existingStart.toLocaleTimeString('pt-BR')} - ${existingEnd.toLocaleTimeString('pt-BR')}`,
+                    novo: `${localDateTime.toLocaleTimeString('pt-BR')} - ${appointmentEnd.toLocaleTimeString('pt-BR')}`
+                });
+            }
+
+            return overlap;
+        });
+
+        if (hasConflict) {
+            alert("⚠️ Este horário conflita com outro agendamento! Por favor, escolha outro horário.");
             setIsSaving(false);
             return;
         }
@@ -371,6 +435,11 @@ export default function CalendarPage() {
             ciclo_cilios: newApp.ciclo_cilios,
             valor_final: newApp.valor_final
         };
+
+        // Se estiver reagendando um desmarcado, muda o status para pendente
+        if (isRescheduling) {
+            payload.status = 'pendente';
+        }
 
         const { error } = editingId
             ? await supabase.from("agendamentos").update(payload).eq("id", editingId)
@@ -387,6 +456,7 @@ export default function CalendarPage() {
             setEditingId(null);
             setClientAlert(null);
             setReceiveSignal(false);
+            setIsRescheduling(false);
             fetchData();
         }
         else alert("Erro: " + error.message);
@@ -407,15 +477,40 @@ export default function CalendarPage() {
             ciclo_cilios: app.ciclo_cilios || "",
             valor_final: app.valor_final || app.servicos?.preco || 0
         });
-        setReceiveSignal(false); // Reseta o sinal para não cobrar de novo no reagendamento por padrão
+        setReceiveSignal(false);
         setClientAlert(null);
+        setIsRescheduling(false); // Reset
+        setShowModal(true);
+    }
+
+    function handleReschedule(app: any) {
+        const dateObj = new Date(app.horario);
+        const dataStr = dateObj.toISOString().split('T')[0];
+        const horaStr = dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+        setEditingId(app.id);
+        setNewApp({
+            cliente_id: app.cliente_id,
+            servico_id: app.servico_id,
+            data: dataStr,
+            hora: horaStr,
+            ciclo_cilios: app.ciclo_cilios || "",
+            valor_final: app.valor_final || app.servicos?.preco || 0
+        });
+        setReceiveSignal(false);
+        setClientAlert(null);
+        setIsRescheduling(true); // Marca como reagendamento
         setShowModal(true);
     }
 
     async function handleDelete(id: string) {
-        if (confirm("Deseja excluir?")) {
-            await supabase.from("agendamentos").delete().eq("id", id);
-            fetchData();
+        if (confirm("Tem certeza que deseja excluir este agendamento?")) {
+            const { error } = await supabase.from("agendamentos").delete().eq("id", id);
+            if (error) {
+                alert("Erro ao excluir: " + error.message);
+            } else {
+                fetchData();
+            }
         }
     }
 
@@ -569,8 +664,8 @@ export default function CalendarPage() {
                                     </div>
                                     {cycleSuggestion && (
                                         <div className={`p-4 rounded-2xl border text-xs font-medium leading-relaxed flex gap-3 ${cycleSuggestion.includes("ENCERRADO")
-                                                ? "bg-red-50 border-red-100 text-red-700"
-                                                : "bg-indigo-50 border-indigo-100 text-indigo-700"
+                                            ? "bg-red-50 border-red-100 text-red-700"
+                                            : "bg-indigo-50 border-indigo-100 text-indigo-700"
                                             }`}>
                                             <Sparkles className={`w-5 h-5 shrink-0 ${cycleSuggestion.includes("ENCERRADO") ? "text-red-500" : "text-indigo-500"}`} />
                                             <span>{cycleSuggestion}</span>
@@ -585,24 +680,36 @@ export default function CalendarPage() {
                                     <input type="date" required className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold" value={newApp.data} onChange={e => setNewApp({ ...newApp, data: e.target.value })} />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Horário Sugerido</label>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Horário</label>
                                     <div className="relative">
-                                        <select
-                                            required
-                                            className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold appearance-none cursor-pointer"
-                                            value={newApp.hora}
-                                            onChange={e => setNewApp({ ...newApp, hora: e.target.value })}
-                                        >
-                                            <option value="">Escolha...</option>
-                                            {availableStaffSlots.length === 0 ? (
-                                                <option disabled>Sem horários para este serviço</option>
-                                            ) : (
-                                                availableStaffSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)
-                                            )}
-                                        </select>
-                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-                                            <ClockIcon className="w-4 h-4" />
-                                        </div>
+                                        {editingId ? (
+                                            <input
+                                                type="time"
+                                                required
+                                                className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold"
+                                                value={newApp.hora}
+                                                onChange={e => setNewApp({ ...newApp, hora: e.target.value })}
+                                            />
+                                        ) : (
+                                            <>
+                                                <select
+                                                    required
+                                                    className="w-full p-4 rounded-2xl border border-border outline-none focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white font-bold appearance-none cursor-pointer"
+                                                    value={newApp.hora}
+                                                    onChange={e => setNewApp({ ...newApp, hora: e.target.value })}
+                                                >
+                                                    <option value="">Escolha...</option>
+                                                    {availableStaffSlots.length === 0 ? (
+                                                        <option disabled>Sem horários para este serviço</option>
+                                                    ) : (
+                                                        availableStaffSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)
+                                                    )}
+                                                </select>
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                                                    <ClockIcon className="w-4 h-4" />
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -830,6 +937,15 @@ export default function CalendarPage() {
 
                                                     {/* Novas Ações Rápidas */}
                                                     <div className="flex items-center gap-3 mt-4">
+                                                        {item.data.status === 'desmarcou' && (
+                                                            <button
+                                                                onClick={() => handleReschedule(item.data)}
+                                                                className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-600 hover:text-white transition-all group/btn"
+                                                            >
+                                                                <CalendarIcon className="w-3.5 h-3.5" />
+                                                                <span className="text-[9px] font-black uppercase tracking-widest">Reagendar</span>
+                                                            </button>
+                                                        )}
                                                         {item.data.status === 'pendente' && (
                                                             <button
                                                                 onClick={() => handleConfirmHorario(item.data)}
@@ -839,7 +955,7 @@ export default function CalendarPage() {
                                                                 <span className="text-[9px] font-black uppercase tracking-widest">Confirmar</span>
                                                             </button>
                                                         )}
-                                                        {item.data.status !== 'concluido' && (
+                                                        {item.data.status !== 'concluido' && item.data.status !== 'desmarcou' && (
                                                             <button
                                                                 onClick={() => handleAnticiparHorario(item.data)}
                                                                 className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-xl hover:bg-green-600 hover:text-white transition-all group/btn"
